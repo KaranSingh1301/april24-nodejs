@@ -4,9 +4,15 @@ const mongoose = require("mongoose");
 const bcrypt = require("bcryptjs");
 const session = require("express-session");
 const mongodbSession = require("connect-mongodb-session")(session);
+const jwt = require("jsonwebtoken");
 
 //file-import
-const { userDataValidation, isEmailRgex } = require("./utils/authUtils");
+const {
+  userDataValidation,
+  isEmailRgex,
+  genrateToken,
+  sendVerificationMail,
+} = require("./utils/authUtils");
 const userModel = require("./models/userModel");
 const { isAuth } = require("./middleware/isAuth");
 const { todoDataValidation } = require("./utils/todoUtils");
@@ -99,6 +105,12 @@ app.post("/register-user", async (req, res) => {
     //store the data
     const userDb = await userObj.save();
 
+    //genrate token
+    const verifiedToken = genrateToken(email);
+
+    //send mail with token
+    sendVerificationMail(email, verifiedToken);
+
     return res.redirect("/login");
   } catch (error) {
     return res.send({
@@ -137,6 +149,14 @@ app.post("/login-user", async (req, res) => {
       });
     }
 
+    //check if email is verified or not
+    if (!userDb.isEmailVerified) {
+      return res.send({
+        status: 400,
+        message: "Please verify your mail before login.",
+      });
+    }
+
     //compare the password
 
     const isMatched = await bcrypt.compare(password, userDb.password);
@@ -166,6 +186,25 @@ app.post("/login-user", async (req, res) => {
       error: error,
     });
   }
+});
+
+//verify the token
+
+app.get("/verifytoken/:token", async (req, res) => {
+  console.log(req.params);
+  const token = req.params.token;
+  jwt.verify(token, process.env.SECRET_KEY, async (err, userInfo) => {
+    try {
+      await userModel.findOneAndUpdate(
+        { email: userInfo },
+        { isEmailVerified: true }
+      );
+
+      return res.redirect("/login");
+    } catch (error) {
+      return res.status(500).json("Internal server error");
+    }
+  });
 });
 
 app.get("/dashboard", isAuth, (req, res) => {
